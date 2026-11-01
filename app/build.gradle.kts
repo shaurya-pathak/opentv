@@ -63,6 +63,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+            versionNameSuffix = "-lab"
             isMinifyEnabled = false
         }
     }
