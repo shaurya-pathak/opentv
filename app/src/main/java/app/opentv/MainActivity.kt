@@ -275,7 +275,8 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val bootSettings = remember { ServiceLocator.get(bootContext).settings }
     LaunchedEffect(start) {
         val hasExplicitChannel = app.opentv.core.PlayRequests.channelId.value != null ||
-            app.opentv.core.ProviderPlayRequests.target.value != null
+            app.opentv.core.ProviderPlayRequests.target.value != null ||
+            app.opentv.core.ProviderMoviePlayRequests.hasExplicitRequestThisProcess
         if (start == Routes.HOME && !hasExplicitChannel && bootSettings.resumeLastChannel.value && bootSettings.lastChannelId != 0L) {
             navController.navigate(Routes.player(bootSettings.lastChannelId))
         }
@@ -289,7 +290,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
         if (id != null && id != 0L) {
             app.opentv.core.PlayRequests.consume()
             navController.navigate(Routes.player(id)) {
-                popUpTo(Routes.PLAYER) { inclusive = true }
+                val previous = navController.currentDestination?.route
+                if (previous == Routes.PLAYER || previous == Routes.VOD_PLAYER) {
+                    popUpTo(previous) { inclusive = true }
+                }
             }
         }
     }
@@ -306,7 +310,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
         } else {
             // A repeated explicit request must retune even after retries exhausted.
             navController.navigate(Routes.player(channel.id)) {
-                popUpTo(Routes.PLAYER) { inclusive = true }
+                val previous = navController.currentDestination?.route
+                if (previous == Routes.PLAYER || previous == Routes.VOD_PLAYER) {
+                    popUpTo(previous) { inclusive = true }
+                }
             }
         }
     }
@@ -338,7 +345,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     providerId = movie.streamId,
                 ),
             ) {
-                popUpTo(Routes.PLAYER) { inclusive = true }
+                val previous = navController.currentDestination?.route
+                if (previous == Routes.PLAYER || previous == Routes.VOD_PLAYER) {
+                    popUpTo(previous) { inclusive = true }
+                }
             }
         }
     }
@@ -368,7 +378,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     // the recording returns to the home screen — never to a live stream. On a single-
                     // connection line, returning to live TV while still recording would open a second
                     // stream and risk the provider banning the account.
-                    popUpTo(Routes.PLAYER) { inclusive = true }
+                    val previous = navController.currentDestination?.route
+                if (previous == Routes.PLAYER || previous == Routes.VOD_PLAYER) {
+                    popUpTo(previous) { inclusive = true }
+                }
                 }
             }
         }

@@ -14,6 +14,7 @@ import java.security.MessageDigest
 import kotlin.concurrent.thread
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 
 /** Private-LAN, bearer-authenticated status and stop endpoints for a paired controller. */

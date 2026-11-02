@@ -195,7 +195,7 @@ class CatalogRepository(
             ?: return@withContext null
         val movie = api.movieById(source, movieId) ?: return@withContext null
         movieDao.upsertAll(listOf(movie))
-        movie
+        movieDao.byProviderKey(sourceId, movieId)
     }
 
     /**

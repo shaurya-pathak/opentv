@@ -11,7 +11,13 @@ import kotlinx.coroutines.flow.asStateFlow
 /** A one-shot provider movie key; provider IDs are resolved against this install's catalog. */
 object ProviderMoviePlayRequests {
     private val pending = MutableStateFlow<ChannelLink.ProviderMovieTarget?>(null)
+    @Volatile private var receivedInThisProcess = false
     val target = pending.asStateFlow()
-    fun request(target: ChannelLink.ProviderMovieTarget) { pending.value = target }
+    val hasExplicitRequestThisProcess: Boolean get() = receivedInThisProcess
+
+    fun request(target: ChannelLink.ProviderMovieTarget) {
+        receivedInThisProcess = true
+        pending.value = target
+    }
     fun consume() { pending.value = null }
 }
