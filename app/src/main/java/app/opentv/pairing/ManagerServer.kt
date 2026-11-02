@@ -7,6 +7,7 @@ package app.opentv.pairing
 
 import android.util.Log
 import app.opentv.core.AppSettings
+import app.opentv.control.ControlServer
 import app.opentv.data.model.Channel
 import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
@@ -217,6 +218,21 @@ class ManagerServer(
 
             method == "GET" && path == "/meta" ->
                 output.write(PairingHttp.httpResponse("200 OK", "application/json", metaJson()))
+
+            // A short-lived, QR-token-authenticated bridge lets a paired local controller obtain
+            // the app-private long-lived playback bearer. The bearer itself is never in the QR.
+            method == "GET" && path == "/control-pair" -> {
+                val pair = ControlServer.pairInfo()
+                val body = pair?.let { "{\"port\":${it.port},\"token\":\"${it.token}\"}" }
+                    ?: "{}"
+                output.write(
+                    PairingHttp.httpResponse(
+                        if (pair == null) "503 Service Unavailable" else "200 OK",
+                        "application/json",
+                        body,
+                    ),
+                )
+            }
 
             method == "GET" && path == "/channels" ->
                 output.write(PairingHttp.httpResponse("200 OK", "application/json", channelsJson(query)))

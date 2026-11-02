@@ -500,6 +500,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun byId(id: Long): Movie?
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamId = :streamId LIMIT 1")
+    suspend fun byProviderKey(sourceId: Long, streamId: String): Movie?
+
     /** Stream URL is the cross-device key: the same film has the same URL on the same provider. */
     @Query("SELECT * FROM movies WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Movie?

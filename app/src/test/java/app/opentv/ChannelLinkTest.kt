@@ -11,6 +11,24 @@ class ChannelLinkTest {
         assertEquals("100", target?.streamId)
         assertNull(ChannelLink.channelId("opentv-lab://source/2/stream/100", "opentv-lab"))
     }
+    @Test fun acceptsExactProviderMovieKey() {
+        val target = ChannelLink.providerMovieTarget("opentv-lab://source/17/movie/90001", "opentv-lab")
+        assertEquals(17L, target?.sourceId)
+        assertEquals("90001", target?.movieId)
+        assertNull(ChannelLink.providerTarget("opentv-lab://source/17/movie/90001", "opentv-lab"))
+    }
+
+    @Test fun rejectsMovieLinksThatCouldCarryAmbiguousOrSensitiveData() {
+        listOf(
+            "opentv-lab://source/0/movie/9",
+            "opentv-lab://source/17/movie/0",
+            "opentv-lab://source/17/movie/09",
+            "opentv-lab://source/17/movie/9?url=http://private",
+            "opentv-lab://source/9223372036854775808/movie/9",
+            "opentv-lab://source/17/movie/9223372036854775808",
+            "opentv-local://source/17/movie/9",
+        ).forEach { assertNull(it, ChannelLink.providerMovieTarget(it, "opentv-lab")) }
+    }
     @Test fun rejectsInvalidProviderSourcesAndStreamIds() {
         listOf("opentv-lab://source/0/stream/100", "opentv-lab://source/2/stream/-1",
             "opentv-lab://source/2/stream/01", "opentv-lab://source/2/stream/100?url=secret",

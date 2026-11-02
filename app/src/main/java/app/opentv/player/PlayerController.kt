@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import app.opentv.control.PlaybackControlState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,6 +34,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.util.Locale
+
+data class AudioSelectionStatus(
+    val englishStatus: String,
+    val selectedLanguage: String?,
+)
 
 /**
  * Owns the single [ExoPlayer] instance and everything about switching what it is playing.
@@ -88,6 +95,8 @@ class PlayerController(
     private val liveRecording: Boolean = false,
     /** A hidden/stopped window is not evidence that the feed's video has frozen. */
     private val shouldMonitor: () -> Boolean = { true },
+    /** Prefer English only for VOD where a catalogue/movie request asks for it. */
+    private val preferEnglishAudio: Boolean = false,
 ) {
 
     /** Channel-surf debounce for this controller — longer for the preview so browsing is calm. */
@@ -108,6 +117,9 @@ class PlayerController(
         /** Live streams are never resumed; VOD is. */
         val startPositionMillis: Long = 0L,
         val isLive: Boolean = true,
+        val mediaKind: String = "none",
+        val sourceId: Long = 0L,
+        val providerId: String = "",
     )
 
     private val _state = MutableStateFlow<State>(State.Idle)
@@ -116,6 +128,12 @@ class PlayerController(
     /** The current stream's tracks (audio/text/video), for the in-player pickers. */
     private val _tracks = MutableStateFlow(Tracks.EMPTY)
     val tracks: StateFlow<Tracks> = _tracks.asStateFlow()
+
+    private val _audioSelection = MutableStateFlow(
+        AudioSelectionStatus(if (preferEnglishAudio) "pending" else "unknown", null),
+    )
+    val audioSelection: StateFlow<AudioSelectionStatus> = _audioSelection.asStateFlow()
+    private var explicitAudioChoice = false
 
     private var switchJob: Job? = null
     private var recoveryJob: Job? = null
@@ -182,6 +200,7 @@ class PlayerController(
      */
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters()
+            .apply { if (preferEnglishAudio) setPreferredAudioLanguage("en") }
             .setPreferredTextLanguage(java.util.Locale.getDefault().language)
             .setSelectUndeterminedTextLanguage(true)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
@@ -226,9 +245,12 @@ class PlayerController(
             addListener(object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
                     _tracks.value = tracks
+                    updateAudioSelection(tracks)
+                    publishControl()
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateAudioSelection(player.currentTracks)
                     val title = current?.title.orEmpty()
                     _state.value = when (playbackState) {
                         Player.STATE_BUFFERING -> State.Buffering(title)
@@ -244,6 +266,7 @@ class PlayerController(
                         }
                         else -> _state.value
                     }
+                    publishControl()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -259,6 +282,7 @@ class PlayerController(
                         // Resuming after a pause cancelled a pending restart; load immediately.
                         current?.let { play(it, debounce = false) }
                     }
+                    publishControl()
                 }
             })
             addAnalyticsListener(object : AnalyticsListener {
@@ -269,6 +293,18 @@ class PlayerController(
                 }
             })
         }
+
+    init {
+        scope.launch {
+            var seen = PlaybackControlState.stopSequenceFlow.value
+            PlaybackControlState.stopSequenceFlow.collect { sequence ->
+                if (sequence > seen) {
+                    seen = sequence
+                    if (current != null) stop()
+                }
+            }
+        }
+    }
 
     /**
      * Switches playback.
@@ -288,6 +324,19 @@ class PlayerController(
         val tuneGeneration = generation
         current = request
         recovery.newTune(SystemClock.elapsedRealtime())
+        // Do not let the previous movie's track decision describe this tune while its manifest
+        // is still loading. An explicit user override remains in the selector and stays unknown
+        // until the actual selected track is observed.
+        _audioSelection.value = AudioSelectionStatus(
+            when {
+                explicitAudioChoice -> "unknown"
+                preferEnglishAudio -> "pending"
+                else -> "unknown"
+            },
+            null,
+        )
+        PlaybackControlState.expect(request.mediaKind, request.sourceId, request.providerId)
+        publishControl("buffering")
 
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
@@ -304,6 +353,7 @@ class PlayerController(
             recovery.restarted(SystemClock.elapsedRealtime())
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
+            publishControl("buffering")
 
             val mediaItem = MediaItem.Builder()
                 .setUri(request.url)
@@ -340,6 +390,7 @@ class PlayerController(
         if (released || recoveryJob?.isActive == true) return
         if (!player.playWhenReady || !shouldMonitor()) {
             _state.value = State.Error(request.title, message, true)
+            publishControl("error")
             return
         }
         val delayMillis = recovery.reserveRestart()
@@ -349,10 +400,12 @@ class PlayerController(
             // Release the network connection before leaving the final error on screen.
             preparing = true
             try { player.stop(); player.clearMediaItems() } finally { preparing = false }
+            publishControl("error", recoveryExhausted = true)
             return
         }
         val tuneGeneration = generation
         _state.value = State.Buffering(request.title)
+        publishControl("buffering")
         // Release before backoff: never open another stream while the old load is running.
         preparing = true
         try { player.stop(); player.clearMediaItems() } finally { preparing = false }
@@ -380,6 +433,7 @@ class PlayerController(
                     videoFrames = player.videoDecoderCounters?.also { it.ensureUpdated() }?.renderedOutputBufferCount,
                     videoExpected = player.currentTracks.isTypeSelected(C.TRACK_TYPE_VIDEO),
                 )
+                publishControl()
                 // VOD/recording endings and guide previews are not live stream failures.
                 if (reason != null && request.isLive && !preview && !liveRecording) scheduleRecovery(reason)
             }
@@ -416,10 +470,53 @@ class PlayerController(
 
     /** Force a specific audio or text track on (used by the in-player pickers). */
     fun selectTrack(group: Tracks.Group, trackIndex: Int) {
+        if (group.type == C.TRACK_TYPE_AUDIO) explicitAudioChoice = true
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
             .setTrackTypeDisabled(group.type, false)
             .build()
+        updateAudioSelection(player.currentTracks)
+    }
+
+    private fun updateAudioSelection(tracks: Tracks) {
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val selected = audioGroups.firstNotNullOfOrNull { group ->
+            (0 until group.length).firstOrNull { group.isTrackSelected(it) }
+                ?.let { group.getTrackFormat(it).language?.takeIf(String::isNotBlank) }
+        }
+        if (!preferEnglishAudio) {
+            _audioSelection.value = AudioSelectionStatus("unknown", selected)
+            publishControl()
+            return
+        }
+        if (selected.isEnglishLanguage()) {
+            _audioSelection.value = AudioSelectionStatus("selected", selected)
+            publishControl()
+            return
+        }
+        if (explicitAudioChoice) {
+            _audioSelection.value = AudioSelectionStatus("unknown", selected)
+            publishControl()
+            return
+        }
+        val englishAvailable = audioGroups.any { group ->
+            (0 until group.length).any {
+                group.isTrackSupported(it) && group.getTrackFormat(it).language.isEnglishLanguage()
+            }
+        }
+        val ready = player.playbackState == Player.STATE_READY
+        _audioSelection.value = when {
+            ready && !englishAvailable -> AudioSelectionStatus("unavailable", selected)
+            ready && englishAvailable -> AudioSelectionStatus("unknown", selected)
+            else -> AudioSelectionStatus("pending", selected)
+        }
+        publishControl()
+    }
+
+    private fun String?.isEnglishLanguage(): Boolean {
+        if (this.isNullOrBlank()) return false
+        val normalized = lowercase(Locale.ROOT).replace('_', '-')
+        return normalized == "eng" || Locale.forLanguageTag(normalized).language == "en"
     }
 
     /** Turn subtitles off entirely. */
@@ -446,6 +543,7 @@ class PlayerController(
     }
 
     fun stop() {
+        val stopped = current
         switchJob?.cancel()
         recoveryJob?.cancel()
         recoveryJob = null
@@ -456,6 +554,7 @@ class PlayerController(
         player.stop()
         player.clearMediaItems()
         _state.value = State.Idle
+        stopped?.let { PlaybackControlState.idleIfCurrent(it.mediaKind, it.sourceId, it.providerId) }
     }
 
     fun release() {
@@ -463,6 +562,25 @@ class PlayerController(
         stop()
         released = true
         player.release()
+    }
+
+    private fun publishControl(stateOverride: String? = null, recoveryExhausted: Boolean = false) {
+        val request = current ?: return
+        val state = stateOverride ?: when {
+            !player.playWhenReady && player.playbackState == Player.STATE_READY -> "paused"
+            player.playbackState == Player.STATE_READY && player.isPlaying -> "playing"
+            player.playbackState == Player.STATE_BUFFERING -> "buffering"
+            player.playbackState == Player.STATE_IDLE -> "idle"
+            _state.value is State.Error -> "error"
+            else -> "buffering"
+        }
+        val frames = player.videoDecoderCounters?.also { it.ensureUpdated() }?.renderedOutputBufferCount
+        val audio = _audioSelection.value
+        PlaybackControlState.update(
+            request.mediaKind, request.sourceId, request.providerId, state,
+            player.currentPosition, frames, audio.selectedLanguage, audio.englishStatus,
+            recoveryExhausted || (recovery.attempts >= 3 && _state.value is State.Error),
+        )
     }
 
     private companion object {

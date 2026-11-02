@@ -10,6 +10,7 @@ import java.net.URI
 /** Local catalog identifiers only: never accept provider URLs or credentials in a link. */
 object ChannelLink {
     data class ProviderTarget(val sourceId: Long, val streamId: String)
+    data class ProviderMovieTarget(val sourceId: Long, val movieId: String)
 
     fun providerTarget(value: String?, scheme: String): ProviderTarget? {
         if (value == null || value.length > 128) return null
@@ -22,6 +23,19 @@ object ChannelLink {
         val streamId = match.groupValues[2]
         if (streamId.toLongOrNull() == null) return null
         return ProviderTarget(sourceId, streamId)
+    }
+
+    fun providerMovieTarget(value: String?, scheme: String): ProviderMovieTarget? {
+        if (value == null || value.length > 128) return null
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
+        if (uri.scheme != scheme || uri.rawAuthority != "source" ||
+            uri.rawQuery != null || uri.rawFragment != null) return null
+        val match = Regex("/([1-9][0-9]{0,18})/movie/([1-9][0-9]{0,18})")
+            .matchEntire(uri.rawPath ?: return null) ?: return null
+        val sourceId = match.groupValues[1].toLongOrNull() ?: return null
+        val movieId = match.groupValues[2]
+        if (movieId.toLongOrNull() == null) return null
+        return ProviderMovieTarget(sourceId, movieId)
     }
 
     fun channelId(value: String?, scheme: String): Long? {

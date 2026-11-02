@@ -116,6 +116,8 @@ fun VodPlayerScreen(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    providerSourceId: Long? = null,
+    providerId: String? = null,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -136,6 +138,7 @@ fun VodPlayerScreen(
             growingDataSourceFactory =
                 app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
             liveRecording = growingRec,
+            preferEnglishAudio = mediaKey.startsWith("movie:"),
         )
     }
     // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
@@ -148,6 +151,7 @@ fun VodPlayerScreen(
     }
     val state by controller.state.collectAsState()
     val tracks by controller.tracks.collectAsState()
+    val audioSelection by controller.audioSelection.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
@@ -206,6 +210,9 @@ fun VodPlayerScreen(
                 userAgent = userAgent,
                 startPositionMillis = resumeFrom,
                 isLive = false,
+                mediaKind = if (mediaKey.startsWith("movie:")) "movie" else "none",
+                sourceId = providerSourceId ?: 0L,
+                providerId = providerId.orEmpty(),
             ),
             debounce = false,
         )

@@ -189,6 +189,15 @@ class CatalogRepository(
 
     suspend fun movie(id: Long): Movie? = movieDao.byId(id)
 
+    suspend fun movieByProviderKey(sourceId: Long, movieId: String): Movie? = withContext(Dispatchers.IO) {
+        movieDao.byProviderKey(sourceId, movieId)?.let { return@withContext it }
+        val source = sourceDao.byId(sourceId)?.takeIf { it.enabled && it.kind == SourceKind.XTREAM }
+            ?: return@withContext null
+        val movie = api.movieById(source, movieId) ?: return@withContext null
+        movieDao.upsertAll(listOf(movie))
+        movie
+    }
+
     /**
      * The IMDb id for a film, for Stremio add-on stream lookups. Resolved through the user's TMDB
      * key (using the provider's TMDB id when present, else a title+year search). Null without a key

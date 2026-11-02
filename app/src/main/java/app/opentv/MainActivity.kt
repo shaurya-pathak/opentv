@@ -54,6 +54,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import app.opentv.core.AppSettings
 import app.opentv.core.ServiceLocator
 import app.opentv.data.parser.displayTitle
@@ -130,6 +132,13 @@ class MainActivity : ComponentActivity() {
             val target = app.opentv.core.ChannelLink.providerTarget(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
             if (target != null) {
                 app.opentv.core.ProviderPlayRequests.request(target)
+                app.opentv.control.PlaybackControlState.expect("live", target.sourceId, target.streamId)
+                return
+            }
+            val movieTarget = app.opentv.core.ChannelLink.providerMovieTarget(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
+            if (movieTarget != null) {
+                app.opentv.core.ProviderMoviePlayRequests.request(movieTarget)
+                app.opentv.control.PlaybackControlState.expect("movie", movieTarget.sourceId, movieTarget.movieId)
                 return
             }
         }
@@ -219,16 +228,18 @@ object Routes {
 
     // VOD plays carry the stream inline; a movie/episode is a one-off URL, not a stored id
     // the player can look up the way a channel is.
-    const val VOD_PLAYER = "vod?key={key}&url={url}&title={title}&ua={ua}"
+    const val VOD_PLAYER = "vod?key={key}&url={url}&title={title}&ua={ua}&sourceId={sourceId}&providerId={providerId}"
 
     fun player(channelId: Long) = "player/$channelId"
     fun seriesDetail(seriesId: Long) = "series/$seriesId"
     fun movieDetail(movieId: Long) = "movie/$movieId"
     fun editSource(sourceId: Long) = "edit-source/$sourceId"
     fun person(name: String) = "person?name=${java.net.URLEncoder.encode(name, "UTF-8")}"
-    fun vodPlayer(key: String, url: String, title: String, ua: String): String {
+    fun vodPlayer(key: String, url: String, title: String, ua: String,
+                  sourceId: Long? = null, providerId: String? = null): String {
         fun e(v: String) = java.net.URLEncoder.encode(v, "UTF-8")
-        return "vod?key=${e(key)}&url=${e(url)}&title=${e(title)}&ua=${e(ua)}"
+        return "vod?key=${e(key)}&url=${e(url)}&title=${e(title)}&ua=${e(ua)}" +
+            "&sourceId=${sourceId?.toString().orEmpty()}&providerId=${e(providerId.orEmpty())}"
     }
 }
 
@@ -290,10 +301,43 @@ private fun OpenTvApp(isTelevision: Boolean) {
         val channel = ServiceLocator.get(bootContext).catalogRepository
             .channelByProviderKey(target.sourceId, target.streamId)
         if (channel == null) {
+            app.opentv.control.PlaybackControlState.selectionError("live", target.sourceId, target.streamId, "channel_not_found")
             android.widget.Toast.makeText(bootContext, "Channel not found in this source. Refresh the catalog or check the source mapping.", android.widget.Toast.LENGTH_LONG).show()
         } else {
             // A repeated explicit request must retune even after retries exhausted.
             navController.navigate(Routes.player(channel.id)) {
+                popUpTo(Routes.PLAYER) { inclusive = true }
+            }
+        }
+    }
+
+    val providerMovieRequest by app.opentv.core.ProviderMoviePlayRequests.target.collectAsState()
+    LaunchedEffect(providerMovieRequest) {
+        val target = providerMovieRequest ?: return@LaunchedEffect
+        app.opentv.core.ProviderMoviePlayRequests.consume()
+        val graph = ServiceLocator.get(bootContext)
+        val movie = try {
+            graph.catalogRepository.movieByProviderKey(target.sourceId, target.movieId)
+        } catch (_: Exception) {
+            app.opentv.control.PlaybackControlState.selectionError("movie", target.sourceId, target.movieId, "catalog_unavailable")
+            android.widget.Toast.makeText(bootContext, "Could not load that movie from this source.", android.widget.Toast.LENGTH_LONG).show()
+            return@LaunchedEffect
+        }
+        if (movie == null) {
+            app.opentv.control.PlaybackControlState.selectionError("movie", target.sourceId, target.movieId, "movie_not_found")
+            android.widget.Toast.makeText(bootContext, "Movie not found in this source. Refresh its VOD catalog.", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            val source = graph.sourceRepository.byId(target.sourceId)
+            navController.navigate(
+                Routes.vodPlayer(
+                    key = "movie:${movie.id}",
+                    url = movie.streamUrl,
+                    title = movie.displayTitle,
+                    ua = source?.userAgent ?: "OpenTV/0.1 (Android)",
+                    sourceId = movie.sourceId,
+                    providerId = movie.streamId,
+                ),
+            ) {
                 popUpTo(Routes.PLAYER) { inclusive = true }
             }
         }
@@ -424,7 +468,11 @@ private fun OpenTvApp(isTelevision: Boolean) {
                                 key = "movie:${movie.id}",
                                 url = movie.streamUrl,
                                 title = movie.displayTitle,
-                                ua = "OpenTV/0.1 (Android)",
+                                ua = movie.sourceId.let { id ->
+                                    sourcesUi.sources.firstOrNull { it.id == id }?.userAgent ?: "OpenTV/0.1 (Android)"
+                                },
+                                sourceId = movie.sourceId,
+                                providerId = movie.streamId,
                             ),
                         )
                     },
@@ -528,7 +576,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
                                 key = "movie:${movie.id}",
                                 url = movie.streamUrl,
                                 title = movie.displayTitle,
-                                ua = "OpenTV/0.1 (Android)",
+                                ua = sourcesUi.sources.firstOrNull { it.id == movie.sourceId }?.userAgent
+                                    ?: "OpenTV/0.1 (Android)",
+                                sourceId = movie.sourceId,
+                                providerId = movie.streamId,
                             ),
                         )
                     },
@@ -554,7 +605,13 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 )
             }
 
-            composable(Routes.VOD_PLAYER) { entry ->
+            composable(
+                Routes.VOD_PLAYER,
+                arguments = listOf(
+                    navArgument("sourceId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("providerId") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
                 fun arg(name: String) = entry.arguments?.getString(name)
                     ?.let { java.net.URLDecoder.decode(it, "UTF-8") }.orEmpty()
                 VodPlayerScreen(
@@ -562,6 +619,8 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     streamUrl = arg("url"),
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
+                    providerSourceId = arg("sourceId").toLongOrNull(),
+                    providerId = arg("providerId").ifEmpty { null },
                     onBack = { navController.popBackStack() },
                 )
             }

@@ -152,6 +152,30 @@ class XtreamApi(
         }
     }
 
+    /** Fetch exactly one VOD item by its provider ID, for a trusted provider-key deep link. */
+    suspend fun movieById(source: Source, streamId: String): Movie? = withContext(Dispatchers.IO) {
+        if (!streamId.matches(Regex("[1-9][0-9]{0,18}"))) return@withContext null
+        val body = getJson(source, "get_vod_info") { it.addQueryParameter("vod_id", streamId) }
+        val root = body.jsonObjectOrNull ?: return@withContext null
+        val data = root["movie_data"].jsonObjectOrNull ?: return@withContext null
+        val name = data["name"].asStringOrNull?.takeIf { it.isNotBlank() } ?: return@withContext null
+        val extension = data["container_extension"].asStringOrNull?.takeIf { it.isNotBlank() }
+        Movie(
+            sourceId = source.id,
+            streamId = streamId,
+            name = name,
+            categoryId = data["category_id"].asStringOrNull,
+            posterUrl = data["stream_icon"].asStringOrNull?.takeIf { it.isNotBlank() },
+            rating = data["rating"].asDoubleOrNull,
+            year = data["year"].asIntOrNull,
+            plot = data["plot"].asStringOrNull,
+            durationSeconds = data["duration_secs"].asIntOrNull,
+            containerExtension = extension,
+            streamUrl = vodStreamUrl(source, streamId, extension),
+            addedMillis = data["added"].asLongOrNull?.times(1000) ?: 0L,
+        )
+    }
+
     suspend fun series(source: Source): List<Series> = withContext(Dispatchers.IO) {
         getJson(source, "get_series").arrayOrEmpty.mapNotNull { element ->
             val obj = element.jsonObjectOrNull ?: return@mapNotNull null
