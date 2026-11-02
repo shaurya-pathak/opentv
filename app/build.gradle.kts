@@ -16,6 +16,8 @@ android {
         targetSdk = 35
         versionCode = 22
         versionName = "0.11.10"
+        manifestPlaceholders["channelLinkScheme"] = "opentv-local"
+        buildConfigField("String", "CHANNEL_LINK_SCHEME", "\"opentv-local\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -64,6 +66,8 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-lab"
+            manifestPlaceholders["channelLinkScheme"] = "opentv-lab"
+            buildConfigField("String", "CHANNEL_LINK_SCHEME", "\"opentv-lab\"")
             isMinifyEnabled = false
         }
     }

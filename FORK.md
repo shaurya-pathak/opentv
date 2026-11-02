@@ -9,8 +9,20 @@ The upstream history, copyright notices and GPL-3.0 license are preserved.
 - Starting upstream commit: `443811904b6437720d37bb1064c0830906c3515f` (v0.11.10)
 - Recovery design and regression scenarios: [PLAYBACK_RECOVERY.md](docs/PLAYBACK_RECOVERY.md)
 
-This branch establishes the development setup. Recovery behavior has **not yet
-been changed**. Creating the fork does not install or replace anything on the TV.
+This branch adds validated channel deep links and bounded live playback recovery.
+Creating/building the fork does not install or replace anything on the TV.
+
+Lab channel links use `opentv-lab://channel/42`, where 42 is the Lab installation's
+local catalog ID. Release links use `opentv-local` so Lab never intercepts release
+links. Channel links contain no provider URLs, credentials or executable commands.
+They can be opened by Android TV Remote v2 after pairing, without ADB.
+
+Recovery allows three automatic restarts with increasing delays, releases the old
+load first, and resets its budget only after 60 seconds of advancing healthy
+output. Live stalls, video stalls and sustained audio timing error bursts are
+monitored; pause, previews and VOD endings do not trigger the live watchdog.
+Automatic selection of equivalent channels is still future work. Physical-device
+validation is pending; keep the production player available until tests pass.
 
 ## Build and test
 

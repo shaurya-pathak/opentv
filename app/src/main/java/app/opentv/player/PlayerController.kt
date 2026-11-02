@@ -6,6 +6,7 @@
 package app.opentv.player
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -19,6 +20,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -114,8 +116,13 @@ class PlayerController(
     val tracks: StateFlow<Tracks> = _tracks.asStateFlow()
 
     private var switchJob: Job? = null
+    private var recoveryJob: Job? = null
+    private var healthJob: Job? = null
     private var current: Request? = null
-    private var consecutiveFailures = 0
+    private val recovery = RecoveryPolicy()
+    private var generation = 0L
+    private var released = false
+    private var preparing = false
 
     /**
      * Held so the User-Agent can be swapped per source before each tune.
@@ -224,30 +231,35 @@ class PlayerController(
                     _state.value = when (playbackState) {
                         Player.STATE_BUFFERING -> State.Buffering(title)
                         Player.STATE_READY -> {
-                            consecutiveFailures = 0
                             State.Playing(title)
                         }
                         Player.STATE_IDLE -> _state.value
-                        Player.STATE_ENDED -> State.Idle
+                        Player.STATE_ENDED -> {
+                            if (current?.isLive == true && !preview && !liveRecording && !preparing) {
+                                scheduleRecovery("The live stream ended unexpectedly.")
+                                _state.value
+                            } else State.Idle
+                        }
                         else -> _state.value
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    consecutiveFailures++
-                    val request = current
-                    _state.value = State.Error(
-                        title = request?.title.orEmpty(),
-                        message = PlaybackErrors.describe(error),
-                        canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
-                    )
-                    // One silent restart covers the common case of a provider dropping the
-                    // connection when another device on the account starts streaming.
-                    if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
-                        scope.launch {
-                            delay(AUTO_RESTART_DELAY_MILLIS)
-                            if (current == request) play(request, debounce = false)
-                        }
+                    if (!preparing) scheduleRecovery(PlaybackErrors.describe(error))
+                }
+
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!playWhenReady) {
+                        recoveryJob?.cancel()
+                        recoveryJob = null
+                        recovery.restarted(SystemClock.elapsedRealtime())
+                    }
+                }
+            })
+            addAnalyticsListener(object : AnalyticsListener {
+                override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+                    if (current != null && !preparing && !released) {
+                        recovery.audioError(SystemClock.elapsedRealtime())
                     }
                 }
             })
@@ -260,15 +272,30 @@ class PlayerController(
      * that rapid presses collapse into a single tune. Pass false for a deliberate selection.
      */
     fun play(request: Request, debounce: Boolean = true) {
+        if (released) return
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
+        recoveryJob?.cancel()
+        recoveryJob = null
+        healthJob?.cancel()
+        generation++
+        val tuneGeneration = generation
         current = request
+        recovery.newTune(SystemClock.elapsedRealtime())
 
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
+            if (generation != tuneGeneration || released) return@launch
+            prepareRequest(request)
+            startHealthWatch(tuneGeneration)
+        }
+    }
 
-            consecutiveFailures = 0
+    private fun prepareRequest(request: Request) {
+        preparing = true
+        try {
+            recovery.restarted(SystemClock.elapsedRealtime())
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
@@ -296,6 +323,54 @@ class PlayerController(
                 }
                 playWhenReady = true
                 prepare()
+            }
+        } finally {
+            preparing = false
+        }
+    }
+
+    private fun scheduleRecovery(message: String) {
+        val request = current ?: return
+        if (released || recoveryJob?.isActive == true || !player.playWhenReady) return
+        val delayMillis = recovery.reserveRestart()
+        if (delayMillis == null) {
+            healthJob?.cancel()
+            _state.value = State.Error(request.title, "$message Automatic retries exhausted; choose another feed or retry.", true)
+            // Release the network connection before leaving the final error on screen.
+            preparing = true
+            try { player.stop(); player.clearMediaItems() } finally { preparing = false }
+            return
+        }
+        val tuneGeneration = generation
+        _state.value = State.Buffering(request.title)
+        // Release before backoff: never open another stream while the old load is running.
+        preparing = true
+        try { player.stop(); player.clearMediaItems() } finally { preparing = false }
+        recoveryJob = scope.launch {
+            delay(delayMillis)
+            if (released || generation != tuneGeneration || !player.playWhenReady) return@launch
+            prepareRequest(request)
+            recoveryJob = null
+        }
+    }
+
+    private fun startHealthWatch(tuneGeneration: Long) {
+        healthJob?.cancel()
+        healthJob = scope.launch {
+            while (!released && generation == tuneGeneration) {
+                delay(2_000)
+                val request = current ?: break
+                if (recoveryJob?.isActive == true) continue
+                val reason = recovery.sample(
+                    now = SystemClock.elapsedRealtime(),
+                    wantsPlayback = player.playWhenReady,
+                    ready = player.playbackState == Player.STATE_READY && player.isPlaying,
+                    positionMs = player.currentPosition,
+                    videoFrames = player.videoDecoderCounters?.renderedOutputBufferCount,
+                    videoExpected = player.currentTracks.isTypeSelected(C.TRACK_TYPE_VIDEO),
+                )
+                // VOD/recording endings and guide previews are not live stream failures.
+                if (reason != null && request.isLive && !preview && !liveRecording) scheduleRecovery(reason)
             }
         }
     }
@@ -361,6 +436,10 @@ class PlayerController(
 
     fun stop() {
         switchJob?.cancel()
+        recoveryJob?.cancel()
+        recoveryJob = null
+        healthJob?.cancel()
+        generation++
         current = null
         player.stop()
         player.clearMediaItems()
@@ -368,7 +447,9 @@ class PlayerController(
     }
 
     fun release() {
-        switchJob?.cancel()
+        if (released) return
+        stop()
+        released = true
         player.release()
     }
 
@@ -383,8 +464,6 @@ class PlayerController(
         const val INITIAL_BACKOFF_MILLIS = 500L
         const val MAX_BACKOFF_MILLIS = 8_000L
         const val MAX_LOAD_RETRIES = 5
-        const val MAX_AUTO_RESTARTS = 3
-        const val AUTO_RESTART_DELAY_MILLIS = 1_500L
 
         /**
          * Larger than ExoPlayer's defaults. IPTV sources are much twitchier than a CDN, and a

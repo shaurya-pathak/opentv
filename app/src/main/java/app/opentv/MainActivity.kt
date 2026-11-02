@@ -126,7 +126,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handlePlayIntent(intent: Intent?) {
-        val id = intent?.getLongExtra(EXTRA_PLAY_CHANNEL, 0L) ?: 0L
+        val linkedId = if (intent?.action == Intent.ACTION_VIEW) {
+            app.opentv.core.ChannelLink.channelId(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
+        } else null
+        val id = linkedId ?: (intent?.getLongExtra(EXTRA_PLAY_CHANNEL, 0L) ?: 0L)
         if (id != 0L) app.opentv.core.PlayRequests.request(id)
         val recId = intent?.getLongExtra(EXTRA_WATCH_RECORDING, 0L) ?: 0L
         if (recId != 0L) {
