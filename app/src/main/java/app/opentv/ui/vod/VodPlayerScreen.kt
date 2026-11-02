@@ -277,6 +277,17 @@ fun VodPlayerScreen(
             .onPreviewKeyEvent { event ->
                 when {
                     event.key == Key.Back || event.key == Key.Escape -> false
+                    event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.MediaPause || event.key == Key.MediaPlay ||
+                            event.key == Key.MediaPlayPause) -> {
+                        paused = when (event.key) {
+                            Key.MediaPause -> true
+                            Key.MediaPlay -> false
+                            else -> controller.player.playWhenReady
+                        }
+                        controller.player.playWhenReady = !paused
+                        reveal(); interaction++; true
+                    }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
                     event.type == KeyEventType.KeyDown -> { interaction++; false }
                     else -> false

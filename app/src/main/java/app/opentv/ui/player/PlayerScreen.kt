@@ -366,6 +366,17 @@ fun PlayerScreen(
                 when {
                     // Never swallow Back/Escape — they must reach the back handler.
                     event.key == Key.Back || event.key == Key.Escape -> false
+                    // Handle dedicated transport keys before navigation/pickers consume them.
+                    event.key == Key.MediaPause || event.key == Key.MediaPlay ||
+                        event.key == Key.MediaPlayPause -> {
+                        paused = when (event.key) {
+                            Key.MediaPause -> true
+                            Key.MediaPlay -> false
+                            else -> controller.player.playWhenReady
+                        }
+                        controller.player.playWhenReady = !paused
+                        reveal(); interaction++; true
+                    }
                     // Typing a channel number jumps to it, TiviMate-style.
                     digit != null -> {
                         numberEntry = (numberEntry + digit).take(4)
