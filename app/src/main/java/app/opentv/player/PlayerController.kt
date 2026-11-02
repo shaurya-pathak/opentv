@@ -41,6 +41,15 @@ data class AudioSelectionStatus(
     val selectedLanguage: String?,
 )
 
+internal fun String?.isKnownNonEnglishAudioLanguage(): Boolean {
+    if (isNullOrBlank()) return false
+    val normalized = lowercase(Locale.ROOT).replace('_', '-')
+    if (normalized.substringBefore('-') in setOf("und", "zxx", "mul", "mis", "xx", "unk", "unknown")) {
+        return false
+    }
+    return normalized != "eng" && Locale.forLanguageTag(normalized).language != "en"
+}
+
 /**
  * Owns the single [ExoPlayer] instance and everything about switching what it is playing.
  *
@@ -521,9 +530,7 @@ class PlayerController(
             }
         }
         val knownNonEnglishOnly = supportedAudio.isNotEmpty() && supportedAudio.all { (group, index) ->
-            val language = group.getTrackFormat(index).language
-            !language.isNullOrBlank() && language.lowercase(Locale.ROOT) !in setOf("und", "zxx") &&
-                !language.isEnglishLanguage()
+            group.getTrackFormat(index).language.isKnownNonEnglishAudioLanguage()
         }
         val ready = player.playbackState == Player.STATE_READY
         _audioSelection.value = when {
