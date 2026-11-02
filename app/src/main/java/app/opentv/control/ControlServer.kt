@@ -6,13 +6,15 @@
 package app.opentv.control
 
 import android.content.Context
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
 import kotlin.concurrent.thread
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 /** Private-LAN, bearer-authenticated status and stop endpoints for a paired controller. */
 object ControlServer {
@@ -96,18 +98,18 @@ object ControlServer {
         }
     }
 
-    internal fun statusJson(status: PlaybackControlSnapshot): String = JSONObject()
-        .put("kind", status.kind)
-        .put("source_id", status.sourceId)
-        .put("provider_id", status.providerId)
-        .put("state", status.state)
-        .put("position_ms", status.positionMs)
-        .put("video_frames", status.videoFrames ?: JSONObject.NULL)
-        .put("audio_language", status.audioLanguage ?: JSONObject.NULL)
-        .put("english_status", status.englishStatus)
-        .put("recovery_exhausted", status.recoveryExhausted)
-        .put("selection_error", status.selectionError ?: JSONObject.NULL)
-        .toString()
+    internal fun statusJson(status: PlaybackControlSnapshot): String = buildJsonObject {
+        put("kind", status.kind)
+        put("source_id", status.sourceId)
+        put("provider_id", status.providerId)
+        put("state", status.state)
+        put("position_ms", status.positionMs)
+        put("video_frames", status.videoFrames?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("audio_language", status.audioLanguage?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("english_status", status.englishStatus)
+        put("recovery_exhausted", status.recoveryExhausted)
+        put("selection_error", status.selectionError?.let { JsonPrimitive(it) } ?: JsonNull)
+    }.toString()
 
     private fun readLine(input: InputStream, limit: Int): String? {
         val bytes = ByteArrayOutputStream()

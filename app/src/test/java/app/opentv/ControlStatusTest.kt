@@ -5,14 +5,13 @@ import app.opentv.control.PlaybackControlSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
-@RunWith(RobolectricTestRunner::class)
 class ControlStatusTest {
     @Test fun statusUsesStableSnakeCaseAndContainsNoDisplayTitleOrUrl() {
-        val json = JSONObject(
+        val json = Json.parseToJsonElement(
             ControlServer.statusJson(
                 PlaybackControlSnapshot(
                     kind = "movie",
@@ -25,17 +24,19 @@ class ControlStatusTest {
                     englishStatus = "selected",
                 ),
             ),
-        )
+        ).jsonObject
 
-        assertEquals("movie", json.getString("kind"))
-        assertEquals(12L, json.getLong("source_id"))
-        assertEquals("810", json.getString("provider_id"))
-        assertEquals("playing", json.getString("state"))
-        assertEquals(2000L, json.getLong("position_ms"))
-        assertEquals(50, json.getInt("video_frames"))
-        assertEquals("en-US", json.getString("audio_language"))
-        assertEquals("selected", json.getString("english_status"))
-        assertFalse(json.has("title"))
-        assertFalse(json.has("url"))
+        assertEquals("movie", json.getValue("kind").jsonPrimitive.content)
+        assertEquals(12L, json.getValue("source_id").jsonPrimitive.content.toLong())
+        assertEquals("810", json.getValue("provider_id").jsonPrimitive.content)
+        assertEquals("playing", json.getValue("state").jsonPrimitive.content)
+        assertEquals(2000L, json.getValue("position_ms").jsonPrimitive.content.toLong())
+        assertEquals(50, json.getValue("video_frames").jsonPrimitive.content.toInt())
+        assertEquals("en-US", json.getValue("audio_language").jsonPrimitive.content)
+        assertEquals("selected", json.getValue("english_status").jsonPrimitive.content)
+        assertEquals("false", json.getValue("recovery_exhausted").jsonPrimitive.content)
+        assertEquals("null", json.getValue("selection_error").toString())
+        assertFalse("title" in json)
+        assertFalse("url" in json)
     }
 }
