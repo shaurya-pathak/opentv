@@ -143,6 +143,7 @@ class PlayerController(
     )
     val audioSelection: StateFlow<AudioSelectionStatus> = _audioSelection.asStateFlow()
     private var explicitAudioChoice = false
+    private var englishOverrideRequestedGeneration = Long.MIN_VALUE
 
     private var switchJob: Job? = null
     private var recoveryJob: Job? = null
@@ -332,6 +333,14 @@ class PlayerController(
         generation++
         val tuneGeneration = generation
         current = request
+        englishOverrideRequestedGeneration = Long.MIN_VALUE
+        if (preferEnglishAudio && !explicitAudioChoice) {
+            // Drop only our previous automatic fallback override. A user-selected track remains
+            // intact because selectTrack marks that choice explicit for this player session.
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .build()
+        }
         recovery.newTune(SystemClock.elapsedRealtime())
         // Do not let the previous movie's track decision describe this tune while its manifest
         // is still loading. An explicit user override remains in the selector and stays unknown
@@ -521,7 +530,9 @@ class PlayerController(
             // override or provider quirk prevented it, explicitly select one supported English
             // track unless the user made an audio choice in this playback session.
             val (group, index) = englishTrack
-            if (player.playbackState == Player.STATE_READY) {
+            if (player.playbackState == Player.STATE_READY &&
+                englishOverrideRequestedGeneration != generation) {
+                englishOverrideRequestedGeneration = generation
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
