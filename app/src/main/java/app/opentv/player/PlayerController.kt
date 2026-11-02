@@ -86,6 +86,8 @@ class PlayerController(
      * is a network round-trip — rides over the gaps instead of stalling on every one.
      */
     private val liveRecording: Boolean = false,
+    /** A hidden/stopped window is not evidence that the feed's video has frozen. */
+    private val shouldMonitor: () -> Boolean = { true },
 ) {
 
     /** Channel-surf debounce for this controller — longer for the preview so browsing is calm. */
@@ -253,6 +255,9 @@ class PlayerController(
                         recoveryJob?.cancel()
                         recoveryJob = null
                         recovery.restarted(SystemClock.elapsedRealtime())
+                    } else if (!preparing && !released && player.mediaItemCount == 0 && current != null) {
+                        // Resuming after a pause cancelled a pending restart; load immediately.
+                        current?.let { play(it, debounce = false) }
                     }
                 }
             })
@@ -332,7 +337,11 @@ class PlayerController(
 
     private fun scheduleRecovery(message: String) {
         val request = current ?: return
-        if (released || recoveryJob?.isActive == true || !player.playWhenReady) return
+        if (released || recoveryJob?.isActive == true) return
+        if (!player.playWhenReady || !shouldMonitor()) {
+            _state.value = State.Error(request.title, message, true)
+            return
+        }
         val delayMillis = recovery.reserveRestart()
         if (delayMillis == null) {
             healthJob?.cancel()
@@ -364,7 +373,8 @@ class PlayerController(
                 if (recoveryJob?.isActive == true) continue
                 val reason = recovery.sample(
                     now = SystemClock.elapsedRealtime(),
-                    wantsPlayback = player.playWhenReady,
+                    wantsPlayback = player.playWhenReady && shouldMonitor() &&
+                        player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE,
                     ready = player.playbackState == Player.STATE_READY && player.isPlaying,
                     positionMs = player.currentPosition,
                     videoFrames = player.videoDecoderCounters?.also { it.ensureUpdated() }?.renderedOutputBufferCount,

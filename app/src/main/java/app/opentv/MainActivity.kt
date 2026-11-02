@@ -263,7 +263,9 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val bootContext = androidx.compose.ui.platform.LocalContext.current
     val bootSettings = remember { ServiceLocator.get(bootContext).settings }
     LaunchedEffect(start) {
-        if (start == Routes.HOME && bootSettings.resumeLastChannel.value && bootSettings.lastChannelId != 0L) {
+        val hasExplicitChannel = app.opentv.core.PlayRequests.channelId.value != null ||
+            app.opentv.core.ProviderPlayRequests.target.value != null
+        if (start == Routes.HOME && !hasExplicitChannel && bootSettings.resumeLastChannel.value && bootSettings.lastChannelId != 0L) {
             navController.navigate(Routes.player(bootSettings.lastChannelId))
         }
     }
@@ -275,7 +277,9 @@ private fun OpenTvApp(isTelevision: Boolean) {
         val id = playRequest
         if (id != null && id != 0L) {
             app.opentv.core.PlayRequests.consume()
-            navController.navigate(Routes.player(id))
+            navController.navigate(Routes.player(id)) {
+                popUpTo(Routes.PLAYER) { inclusive = true }
+            }
         }
     }
 
@@ -288,7 +292,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
         if (channel == null) {
             android.widget.Toast.makeText(bootContext, "Channel not found in this source. Refresh the catalog or check the source mapping.", android.widget.Toast.LENGTH_LONG).show()
         } else {
-            navController.navigate(Routes.player(channel.id)) { launchSingleTop = true }
+            // A repeated explicit request must retune even after retries exhausted.
+            navController.navigate(Routes.player(channel.id)) {
+                popUpTo(Routes.PLAYER) { inclusive = true }
+            }
         }
     }
 

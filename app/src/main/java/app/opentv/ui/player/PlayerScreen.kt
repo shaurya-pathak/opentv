@@ -145,6 +145,7 @@ fun PlayerScreen(
             subtitlesEnabled = settings.subtitlesEnabled.value,
             // Opt-in shallow DVR so the transport's pause/rewind actually holds on a live stream.
             dvr = settings.livePauseEnabled.value,
+            shouldMonitor = { view.windowVisibility == android.view.View.VISIBLE },
         )
     }
     val state by controller.state.collectAsState()
