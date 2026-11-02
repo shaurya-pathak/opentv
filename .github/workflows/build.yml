@@ -17,6 +17,9 @@ jobs:
   build:
     name: Test and assemble
     runs-on: ubuntu-latest
+    env:
+      LAB_KEYSTORE_BASE64: ${{ secrets.OPENTV_LAB_KEYSTORE }}
+      LAB_KEYSTORE_PASSWORD: ${{ secrets.OPENTV_LAB_KEYSTORE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +38,20 @@ jobs:
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Sign Lab APK with persistent development key
+        if: env.LAB_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          umask 077
+          printf '%s' "$LAB_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/opentv-lab.jks"
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$signer" sign --ks "$RUNNER_TEMP/opentv-lab.jks" --ks-key-alias opentv-lab \
+            --ks-pass env:LAB_KEYSTORE_PASSWORD --key-pass env:LAB_KEYSTORE_PASSWORD \
+            --out "$RUNNER_TEMP/opentv-lab.apk" app/build/outputs/apk/debug/app-debug.apk
+          "$signer" verify --verbose "$RUNNER_TEMP/opentv-lab.apk"
+          mv "$RUNNER_TEMP/opentv-lab.apk" app/build/outputs/apk/debug/app-debug.apk
+          rm -f "$RUNNER_TEMP/opentv-lab.jks"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

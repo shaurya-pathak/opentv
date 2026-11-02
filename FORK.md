@@ -48,6 +48,11 @@ branches, pull requests and manual dispatch. Download `opentv-debug-apk` from a
 successful run; the APK is a development artifact, not a production release.
 No release or website publication is needed for development.
 
+The personal fork's CI signs the Lab APK with a persistent private development
+key from repository Actions secrets, so updates can preserve Lab's data. The key
+is not committed. On forks without those secrets, builds use the ordinary local
+debug key; do not assume those APKs can update an existing personal Lab install.
+
 ## Keep in sync
 
 `origin` is our fork; `upstream` is `opentvproject/opentv`.
