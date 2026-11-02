@@ -128,7 +128,10 @@ class MainActivity : ComponentActivity() {
     private fun handlePlayIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_VIEW) {
             val target = app.opentv.core.ChannelLink.providerTarget(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
-            if (target != null) app.opentv.core.ProviderPlayRequests.request(target)
+            if (target != null) {
+                app.opentv.core.ProviderPlayRequests.request(target)
+                return
+            }
         }
         val linkedId = if (intent?.action == Intent.ACTION_VIEW) {
             app.opentv.core.ChannelLink.channelId(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)

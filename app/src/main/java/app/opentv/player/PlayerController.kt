@@ -293,6 +293,7 @@ class PlayerController(
     }
 
     private fun prepareRequest(request: Request) {
+        playbackLease.claim(this, ::stop)
         preparing = true
         try {
             recovery.restarted(SystemClock.elapsedRealtime())
@@ -441,6 +442,7 @@ class PlayerController(
         healthJob?.cancel()
         generation++
         current = null
+        playbackLease.release(this)
         player.stop()
         player.clearMediaItems()
         _state.value = State.Idle
@@ -454,6 +456,7 @@ class PlayerController(
     }
 
     private companion object {
+        val playbackLease = PlaybackLease()
         const val DEFAULT_USER_AGENT = "OpenTV/0.1 (Android)"
 
         /** ExoPlayer's "do not retry" sentinel. */
