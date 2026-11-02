@@ -301,9 +301,9 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val providerRequest by app.opentv.core.ProviderPlayRequests.target.collectAsState()
     LaunchedEffect(providerRequest) {
         val target = providerRequest ?: return@LaunchedEffect
-        app.opentv.core.ProviderPlayRequests.consume()
         val channel = ServiceLocator.get(bootContext).catalogRepository
             .channelByProviderKey(target.sourceId, target.streamId)
+        app.opentv.core.ProviderPlayRequests.consume()
         if (channel == null) {
             app.opentv.control.PlaybackControlState.selectionError("live", target.sourceId, target.streamId, "channel_not_found")
             android.widget.Toast.makeText(bootContext, "Channel not found in this source. Refresh the catalog or check the source mapping.", android.widget.Toast.LENGTH_LONG).show()
@@ -321,11 +321,13 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val providerMovieRequest by app.opentv.core.ProviderMoviePlayRequests.target.collectAsState()
     LaunchedEffect(providerMovieRequest) {
         val target = providerMovieRequest ?: return@LaunchedEffect
-        app.opentv.core.ProviderMoviePlayRequests.consume()
         val graph = ServiceLocator.get(bootContext)
         val movie = try {
             graph.catalogRepository.movieByProviderKey(target.sourceId, target.movieId)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
+            app.opentv.core.ProviderMoviePlayRequests.consume()
             app.opentv.control.PlaybackControlState.selectionError("movie", target.sourceId, target.movieId, "catalog_unavailable")
             android.widget.Toast.makeText(bootContext, "Could not load that movie from this source.", android.widget.Toast.LENGTH_LONG).show()
             return@LaunchedEffect
@@ -351,6 +353,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 }
             }
         }
+        app.opentv.core.ProviderMoviePlayRequests.consume()
     }
 
     // Auto-switch: a scheduled recording started, so move the live view onto the recording file
