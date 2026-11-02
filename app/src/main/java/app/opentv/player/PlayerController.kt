@@ -200,7 +200,7 @@ class PlayerController(
      */
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters()
-            .apply { if (preferEnglishAudio) setPreferredAudioLanguage("en") }
+            .apply { if (preferEnglishAudio) setPreferredAudioLanguages("en", "eng") }
             .setPreferredTextLanguage(java.util.Locale.getDefault().language)
             .setSelectUndeterminedTextLanguage(true)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
@@ -499,17 +499,39 @@ class PlayerController(
             publishControl()
             return
         }
-        val englishAvailable = audioGroups.any { group ->
-            (0 until group.length).any {
-                group.isTrackSupported(it) && group.getTrackFormat(it).language.isEnglishLanguage()
+        val supportedAudio = audioGroups.flatMap { group ->
+            (0 until group.length).filter(group::isTrackSupported).map { index ->
+                group to index
             }
+        }
+        val englishTrack = supportedAudio.firstOrNull { (group, index) ->
+            group.getTrackFormat(index).language.isEnglishLanguage()
+        }
+        if (englishTrack != null) {
+            // The preferred language normally chooses this automatically. If a stale selector
+            // override or provider quirk prevented it, explicitly select one supported English
+            // track unless the user made an audio choice in this playback session.
+            val (group, index) = englishTrack
+            if (player.playbackState == Player.STATE_READY) {
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .build()
+            }
+        }
+        val knownNonEnglishOnly = supportedAudio.isNotEmpty() && supportedAudio.all { (group, index) ->
+            val language = group.getTrackFormat(index).language
+            !language.isNullOrBlank() && language.lowercase(Locale.ROOT) !in setOf("und", "zxx") &&
+                !language.isEnglishLanguage()
         }
         val ready = player.playbackState == Player.STATE_READY
         _audioSelection.value = when {
-            ready && !englishAvailable -> AudioSelectionStatus("unavailable", selected)
-            ready && englishAvailable -> AudioSelectionStatus("unknown", selected)
+            ready && knownNonEnglishOnly -> AudioSelectionStatus("unavailable", selected)
+            ready && englishTrack != null -> AudioSelectionStatus("unknown", selected)
             else -> AudioSelectionStatus("pending", selected)
         }
+        if (ready && knownNonEnglishOnly && player.playWhenReady) player.pause()
         publishControl()
     }
 

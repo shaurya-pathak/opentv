@@ -64,6 +64,9 @@ object PlaybackControlState {
         englishStatus: String,
         recoveryExhausted: Boolean = false,
     ) {
+        val expected = mutable.value
+        if (expected.kind != kind || expected.sourceId != sourceId || expected.providerId != providerId ||
+            expected.selectionError != null) return
         mutable.value = PlaybackControlSnapshot(
             kind, sourceId, providerId, state, positionMs.coerceAtLeast(0), videoFrames,
             audioLanguage, englishStatus, recoveryExhausted,
