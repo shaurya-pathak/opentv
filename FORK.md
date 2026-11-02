@@ -16,6 +16,10 @@ Lab channel links use `opentv-lab://channel/42`, where 42 is the Lab installatio
 local catalog ID. Release links use `opentv-local` so Lab never intercepts release
 links. Channel links contain no provider URLs, credentials or executable commands.
 They can be opened by Android TV Remote v2 after pairing, without ADB.
+For whole-provider control, `opentv-lab://source/2/stream/100` resolves provider
+stream 100 inside local source 2. This uses the database's source/stream unique
+key and survives catalog replacement without assuming provider IDs are Room IDs.
+Hidden channels are excluded. Verify the source mapping once before using it.
 
 Recovery allows three automatic restarts with increasing delays, releases the old
 load first, and resets its budget only after 60 seconds of advancing healthy

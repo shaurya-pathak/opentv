@@ -184,6 +184,9 @@ class CatalogRepository(
 
     suspend fun channel(id: Long): Channel? = channelDao.byId(id)
 
+    suspend fun channelByProviderKey(sourceId: Long, streamId: String): Channel? =
+        channelDao.byProviderKey(sourceId, streamId)
+
     suspend fun movie(id: Long): Movie? = movieDao.byId(id)
 
     /**

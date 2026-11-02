@@ -96,6 +96,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="${channelLinkScheme}" android:host="channel" />
+                <data android:scheme="${channelLinkScheme}" android:host="source" />
             </intent-filter>
         </activity>
 

@@ -126,6 +126,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handlePlayIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            val target = app.opentv.core.ChannelLink.providerTarget(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
+            if (target != null) app.opentv.core.ProviderPlayRequests.request(target)
+        }
         val linkedId = if (intent?.action == Intent.ACTION_VIEW) {
             app.opentv.core.ChannelLink.channelId(intent.dataString, BuildConfig.CHANNEL_LINK_SCHEME)
         } else null
@@ -269,6 +273,19 @@ private fun OpenTvApp(isTelevision: Boolean) {
         if (id != null && id != 0L) {
             app.opentv.core.PlayRequests.consume()
             navController.navigate(Routes.player(id))
+        }
+    }
+
+    val providerRequest by app.opentv.core.ProviderPlayRequests.target.collectAsState()
+    LaunchedEffect(providerRequest) {
+        val target = providerRequest ?: return@LaunchedEffect
+        app.opentv.core.ProviderPlayRequests.consume()
+        val channel = ServiceLocator.get(bootContext).catalogRepository
+            .channelByProviderKey(target.sourceId, target.streamId)
+        if (channel == null) {
+            android.widget.Toast.makeText(bootContext, "Channel not found in this source. Refresh the catalog or check the source mapping.", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            navController.navigate(Routes.player(channel.id)) { launchSingleTop = true }
         }
     }
 

@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChannelLinkTest {
+    @Test fun acceptsProviderKeyWithoutConfusingItWithLocalChannelId() {
+        val target = ChannelLink.providerTarget("opentv-lab://source/2/stream/100", "opentv-lab")
+        assertEquals(2L, target?.sourceId)
+        assertEquals("100", target?.streamId)
+        assertNull(ChannelLink.channelId("opentv-lab://source/2/stream/100", "opentv-lab"))
+    }
+    @Test fun rejectsInvalidProviderSourcesAndStreamIds() {
+        listOf("opentv-lab://source/0/stream/100", "opentv-lab://source/2/stream/-1",
+            "opentv-lab://source/2/stream/01", "opentv-lab://source/2/stream/100?url=secret",
+            "opentv-lab://source/2/stream/9223372036854775808", "opentv-local://source/2/stream/100")
+            .forEach { assertNull(it, ChannelLink.providerTarget(it, "opentv-lab")) }
+    }
     @Test fun acceptsLocalPositiveId() {
         assertEquals(42L, ChannelLink.channelId("opentv-lab://channel/42", "opentv-lab"))
     }

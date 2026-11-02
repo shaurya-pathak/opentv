@@ -366,7 +366,7 @@ class PlayerController(
                     wantsPlayback = player.playWhenReady,
                     ready = player.playbackState == Player.STATE_READY && player.isPlaying,
                     positionMs = player.currentPosition,
-                    videoFrames = player.videoDecoderCounters?.renderedOutputBufferCount,
+                    videoFrames = player.videoDecoderCounters?.also { it.ensureUpdated() }?.renderedOutputBufferCount,
                     videoExpected = player.currentTracks.isTypeSelected(C.TRACK_TYPE_VIDEO),
                 )
                 // VOD/recording endings and guide previews are not live stream failures.
