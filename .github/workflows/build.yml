@@ -18,8 +18,7 @@ jobs:
     name: Test and assemble
     runs-on: ubuntu-latest
     env:
-      LAB_KEYSTORE_BASE64: ${{ secrets.OPENTV_LAB_KEYSTORE }}
-      LAB_KEYSTORE_PASSWORD: ${{ secrets.OPENTV_LAB_KEYSTORE_PASSWORD }}
+      LAB_SIGNING_AVAILABLE: ${{ secrets.OPENTV_LAB_KEYSTORE != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +39,10 @@ jobs:
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Sign Lab APK with persistent development key
-        if: env.LAB_KEYSTORE_BASE64 != ''
+        if: env.LAB_SIGNING_AVAILABLE == 'true'
+        env:
+          LAB_KEYSTORE_BASE64: ${{ secrets.OPENTV_LAB_KEYSTORE }}
+          LAB_KEYSTORE_PASSWORD: ${{ secrets.OPENTV_LAB_KEYSTORE_PASSWORD }}
         shell: bash
         run: |
           umask 077
