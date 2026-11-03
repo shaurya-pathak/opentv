@@ -6,7 +6,6 @@
 package app.opentv.ui.vod
 
 import android.view.ViewGroup
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -88,6 +87,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.opentv.R
+import app.opentv.core.ScreenAwake
 import app.opentv.core.ServiceLocator
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
@@ -187,12 +187,14 @@ fun VodPlayerScreen(
 
     // Keep the screen awake during playback — see the note in PlayerScreen; a film is exactly when
     // the screensaver must not fire. Window flag is the reliable path; keepScreenOn is a backstop.
+    // The flag is reference-counted so an outgoing screen's dispose can't clear it.
+    val screenAwakeHolder = remember { Any() }
     DisposableEffect(Unit) {
         val window = context.findActivity()?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        ScreenAwake.acquire(window, screenAwakeHolder)
         view.keepScreenOn = true
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            ScreenAwake.release(window, screenAwakeHolder)
             view.keepScreenOn = false
             scope.launch { savePosition() }
             controller.release()

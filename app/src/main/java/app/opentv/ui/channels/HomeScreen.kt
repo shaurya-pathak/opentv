@@ -66,11 +66,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import android.content.Intent
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.window.Dialog
 import app.opentv.R
 import app.opentv.core.AppSettings
+import app.opentv.core.ScreenAwake
 import app.opentv.core.ServiceLocator
 import app.opentv.core.findActivity
 import app.opentv.core.requestIgnoreBatteryOptimizations
@@ -251,15 +251,18 @@ fun HomeScreen(
     }
 
     // Hold the screen awake while the guide's live preview is playing — otherwise the box's
-    // screensaver fires while you're browsing with a channel running in the preview pane.
+    // screensaver fires while you're browsing with a channel running in the preview pane. This
+    // screen is still composed during the push into the player, so it must not clear the shared
+    // window flag: the reference-counted owner only turns it off when the last holder lets go.
+    val screenAwakeHolder = remember { Any() }
     DisposableEffect(previewEnabled, screenResumed) {
         val window = context.findActivity()?.window
         if (previewEnabled && screenResumed) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            ScreenAwake.acquire(window, screenAwakeHolder)
         } else {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            ScreenAwake.release(window, screenAwakeHolder)
         }
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        onDispose { ScreenAwake.release(window, screenAwakeHolder) }
     }
 
     // Preview audio follows the setting; muted by default so browsing stays quiet.
